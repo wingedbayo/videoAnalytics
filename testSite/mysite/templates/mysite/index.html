@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}
+    Test
+{% endblock %}
+
+{% block scriptHead %}
+    <script>
+        let uuid;
+    </script>
+{% endblock %}
+
+{% block content %}
+
+     <div id="topbar" class="topbar">
+        <div class="topbar-left">
+            <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle chat history" aria-expanded="false">
+                <i class="bi bi-list"></i>
+            </button>
+            <h1 class="title">VAnalytics</h1>
+        </div>
+        <a href="{% url 'mysite:logout' %}"><img src="{% static 'exit.png' %}" alt="Logout" height="30" width="30"></a>
+    </div>
+
+    <div id="main-content" class="main-content">
+        <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+        <div id="chat-tabs" class="chat-tabs">
+            <div class="chat-history-title">
+                <p>Chat History</p>
+            </div>
+            {% block history %}
+            <div id="chat-history-list" class="chat-history-list">
+                {% if chat_uuid %}
+                    {% for uuid in chat_uuid %}
+                        <a href="/chat/{{ uuid }}" class="chat-history">{{ uuid }}</a>
+                    {% endfor %}
+                {% else %}
+                        <p>No chat history. Begin chatting!</p>
+                {% endif %}
+            </div>
+            {% endblock %}
+
+            <div id="new-chat" class="new-chat">
+                <i class="bi bi-plus-circle-fill"></i>
+                <a href="{% url 'mysite:home' %}">New chat</a>
+            </div>
+        </div>
+
+        <div id="chat-side" class="chat-side">
+            <!-- Main chat window -->
+            <div id="chat-window" class="chat-window">
+                <!-- center of screen and main content window, then disappears when first chat enters -->
+                <header id="header">
+                    <h2 class="header-title">Visual and Aural Analytics</h2>
+                    <p class="header-subtitle">Welcome to the VAA chatbot!</p>
+                    <p class="header-subtitle">This chatbot web app is developed to analyze visual and audio contents for harmful consumption. Try testing it out!</p>
+                </header>
+
+                <!-- then the chat bubbles live in here -->
+            </div>
+
+            <div id="chat-input-group" class="chat-input-group">
+                <div id="chat-prompt-group" class="chat-prompt-group">
+                    <textarea name="" id="chat-prompt" class="chat-prompt" placeholder="Enter a prompt..."></textarea>
+                </div>
+                
+                <div id="chat-input-additional" class="chat-input-additional">
+                    <input type="file" name="" id="chat-file">
+                    <button id="chat-file-button"><i class="bi bi-file-plus-fill"></i></button>
+                    <button type="submit" id="chat-submit" disabled><i class="bi bi-arrow-up-circle-fill"></i></button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+
+    {% csrf_token %}
+    
+    {% block script %}
+        <script type="module">
+            import { marked } from "https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js";
+            import DOMPurify from "https://cdn.jsdelivr.net/npm/dompurify/dist/purify.es.mjs"
+
+            const csrftoken = document.querySelector("[name=csrfmiddlewaretoken]").value;
+
+            {% block uuid %}
+                let uuid;
+            {% endblock %}
+
+            // ------------------------- Sidebar toggle (mobile drawer) -------------------------
+            const sidebar_toggle = document.getElementById("sidebar-toggle");
+            const sidebar_backdrop = document.getElementById("sidebar-backdrop");
+ 
+            function openSidebar() {
+                document.body.classList.add("sidebar-open");
+                sidebar_toggle.setAttribute("aria-expanded", "true");
+            }
+ 
+            function closeSidebar() {
+                document.body.classList.remove("sidebar-open");
+                sidebar_toggle.setAttribute("aria-expanded", "false");
+            }
+ 
+            sidebar_toggle.addEventListener("click", () => {
+                document.body.classList.contains("sidebar-open") ? closeSidebar() : openSidebar();
+            });
+ 
+            sidebar_backdrop.addEventListener("click", closeSidebar);
+ 
+            // tapping a history entry should close the drawer behind it on mobile
+            document.querySelectorAll(".chat-history").forEach((link) => {
+                link.addEventListener("click", closeSidebar);
+            });
+
+            // ------------------------- Upload file input button -------------------------
+            const file_input = document.getElementById("chat-file");
+            const file_button = document.getElementById("chat-file-button");
+            
+            file_button.addEventListener("click", () => {
+                file_input.click();
+            });
+
+            const prompt_group = document.getElementById("chat-prompt-group");
+            let preview_chip = null;
+ 
+            function createFileChip(file, { removable = false } = {}) {
+                const chip = document.createElement("div");
+                chip.classList.add("file-preview-chip");
+ 
+                if (file.type.startsWith("image/")) {
+                    const thumb = document.createElement("img");
+                    thumb.classList.add("file-preview-thumb");
+                    thumb.src = URL.createObjectURL(file);
+                    thumb.alt = file.name;
+                    chip.append(thumb);
+                } else if (file.type.startsWith("video/")) {
+                    const thumb = document.createElement("video");
+                    thumb.classList.add("file-preview-thumb");
+                    // "#t=0.1" nudges the browser to seek and paint an early
+                    // frame instead of showing a blank/black box
+                    thumb.src = URL.createObjectURL(file) + "#t=0.1";
+                    thumb.muted = true;
+                    thumb.playsInline = true;
+                    thumb.preload = "metadata";
+                    chip.append(thumb);
+                }
+ 
+                const name_span = document.createElement("span");
+                name_span.classList.add("file-preview-name");
+                name_span.textContent = file.name;
+                chip.append(name_span);
+ 
+                if (removable) {
+                    const remove_btn = document.createElement("span");
+                    remove_btn.classList.add("file-preview-remove");
+                    remove_btn.textContent = "×";
+                    remove_btn.addEventListener("click", () => {
+                        file_input.value = "";
+                        clearFilePreview();
+                    });
+                    chip.append(remove_btn);
+                }
+ 
+                return chip;
+            }
+ 
+            function clearFilePreview() {
+                if (preview_chip) {
+                    // release any blob URL we created for the thumbnail
+                    const thumb = preview_chip.querySelector(".file-preview-thumb");
+                    if (thumb && thumb.src) {
+                        URL.revokeObjectURL(thumb.src.split("#")[0]);
+                    }
+                    preview_chip.remove();
+                    preview_chip = null;
+                }
+            }
+ 
+            file_input.addEventListener("change", () => {
+                clearFilePreview();
+                const file = file_input.files[0];
+                if (file) {
+                    preview_chip = createFileChip(file, { removable: true });
+                    prompt_group.insertBefore(preview_chip, prompt_group.firstChild);
+                }
+            });
+
+            // ------------------------- Enable submit button  -------------------------
+            const chat_prompt = document.getElementById("chat-prompt");
+            const submit_button = document.getElementById("chat-submit");
+
+            function enableBtn() {
+                const chat_length = document.getElementById("chat-prompt").value.replace(/[\r\n\v]+/g, '').length;
+
+                if (chat_length === 0) {
+                    submit_button.disabled = true;
+                } else {
+                    submit_button.disabled = false;
+                }
+            }
+
+            chat_prompt.addEventListener("keyup", enableBtn);
+            chat_prompt.addEventListener("keydown", (event) => {
+                if (event.shiftKey && event.key === "Enter") {
+                } else if (event.key === "Enter") {
+                    event.preventDefault();
+                    submit_button.click();
+                }
+            });
+            // ------------------------- Chat window prompt and response -------------------------
+
+            async function chat() {
+                // target window to add chat bubbles
+                const chat_window = document.getElementById("chat-window");
+
+                // get prompt
+                const prompt = document.getElementById("chat-prompt").value;
+
+                // create chat bubble for prompt
+                const chat_user = document.createElement("div");
+                chat_user.classList.add("chat-bubble-user");
+                
+                const chat_prompt = document.createElement("p");
+                chat_prompt.textContent = prompt;
+
+                chat_user.append(chat_prompt);
+
+                // clear text field for next input
+                document.getElementById("chat-prompt").value = "";
+
+                // hide header element (change to remove)
+                const header = document.getElementById("header");
+                if (header) {
+                    header.remove();
+                }
+                // if (header.style.display !== "none") {
+                //     header.style.display = "none";
+                // }
+
+                // add bubble to chat window
+                chat_window.append(chat_user);
+                chat_window.scrollTop = chat_window.scrollHeight;
+
+                // test response
+                if (!uuid) {
+                    uuid = self.crypto.randomUUID();
+                }
+
+                const formData = new FormData();
+                formData.append("prompt", prompt);
+                formData.append("uuid", uuid);
+
+                const file = document.getElementById("chat-file").files[0];
+
+                if (file !== undefined) {
+                    formData.append("file", file);
+                }
+                
+                document.getElementById("chat-file").value = "";
+                clearFilePreview();
+                
+                const response = await fetch(
+                    "{% url 'mysite:chat-test' %}",
+                    {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": csrftoken,
+                            "Cross-Origin-Opener-Policy": "same-origin"
+                        },
+                        mode: "cors",
+                        body: formData
+                    }
+                )
+
+                try {
+                    if (response.ok) {
+                        // wrapper that holds both the thinking box and the final response box
+                        const chat_response_div = document.createElement("div");
+                        chat_response_div.classList.add("chat-response");
+    
+                        // response bubble
+                        const responseDiv = document.createElement("div");
+                        responseDiv.classList.add("chat-responding");
+                        let full_text = "";
+    
+                        // mount both bubbles into the chat window right away so
+                        // they can be updated live as chunks stream in
+                        chat_response_div.append(responseDiv);
+                        chat_window.append(chat_response_div);
+    
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+    
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) {
+                                break;
+                            }
+    
+                            const decoded_value = decoder.decode(value);
+                            full_text += decoded_value;
+                            responseDiv.innerHTML = marked.parse(full_text);
+                            chat_window.scrollTop = chat_window.scrollHeight;
+                        }
+                        
+                    }
+                } catch (error) {
+                    console.log("Check server or whatever");
+                }
+
+            }
+
+            submit_button.addEventListener("click", chat);
+
+            // ------------------------- Test environment -------------------------
+            {% block scriptTest %}{% endblock %}
+        </script>
+    {% endblock %}
+{% endblock %}

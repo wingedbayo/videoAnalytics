@@ -1,0 +1,5 @@
+__pycache__
+.env
+conversation_ids.txt
+.DS_Store
+*.ipynb

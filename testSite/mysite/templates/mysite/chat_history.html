@@ -1,0 +1,50 @@
+{% extends "mysite/index.html" %}
+
+{% block title %}
+    Give some title
+{% endblock %}
+
+{% block history %}
+    {% if chat_uuids %}
+        {% for uuid in chat_uuids %}
+            <a href="/chat/{{ uuid }}" class="chat-history">
+                <button>{{ uuid }}</button>
+            </a>
+        {% endfor %}
+    {% endif %}
+{% endblock %}
+
+{% block uuid %}
+    const uuid = "{{ uuid }}";
+{% endblock %}
+
+{% block scriptTest %}
+        
+        function load_history_messages() {
+            const chat_window = document.getElementById("chat-window");
+
+            const header = document.getElementById("header");
+            if (header.style.display !== "none") {
+                header.style.display = "none";
+            }
+            
+            let chat_user;
+            let chat_response_div;
+
+            {% for prompt, assistant in all_messages %}
+                chat_user = document.createElement("div")
+                chat_user.classList.add("chat-user");
+                chat_user.innerHTML = marked.parse({{ prompt|safe }});
+                chat_window.append(chat_user);
+
+                chat_response_div = document.createElement("div");
+                chat_response_div.classList.add("chat-response");
+                chat_response_div.innerHTML = marked.parse({{ assistant|safe }});
+                chat_window.append(chat_response_div);
+            {% endfor %}
+        }
+
+        window.addEventListener("load", load_history_messages);
+        
+{% endblock %}
+
